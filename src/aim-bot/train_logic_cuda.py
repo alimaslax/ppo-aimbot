@@ -5,9 +5,9 @@ import time
 import os
 import wandb
 import argparse
+import sys
 
 # --- Config ---
-TOTAL_TIMESTEPS = 1000000
 UPDATE_TIMESTEPS = 2048
 EPOCHS = 4
 BATCH_SIZE = 64
@@ -21,7 +21,7 @@ def train(resume_path=None):
         project="ppo-aimbot",
         name=run_name,
         config={
-            "total_timesteps": TOTAL_TIMESTEPS,
+            "total_timesteps": "infinite",
             "update_timesteps": UPDATE_TIMESTEPS,
             "epochs": EPOCHS,
             "batch_size": BATCH_SIZE,
@@ -54,9 +54,10 @@ def train(resume_path=None):
     target_x, target_y = np.random.uniform(-0.8, 0.8), np.random.uniform(-0.8, 0.8)
     
     step = 0
-    score_history = []
+    best_avg_reward = -float('inf')
     
     print(f"Starting Math Training (WandB run: {run_name})...")
+    print("Training will run until canceled (Ctrl+C). Saving 'best' and 'last' models.")
     
     memory = {'obs': [], 'actions': [], 'logprobs': [], 'rewards': [], 'dones': [], 'values': []}
     
@@ -67,88 +68,96 @@ def train(resume_path=None):
     if not os.path.exists("weights"):
         os.makedirs("weights")
     
-    while step < TOTAL_TIMESTEPS:
-        # Get Action
-        action, log_prob, value = agent.get_action(next_obs)
-        action_np = np.array(action).flatten()
-        
-        # --- EXECUTE STEP (Simulate Physics) ---
-        
-        # 1. Move Cursor
-        move_speed = 0.1 # Max movement per step relative to screen
-        dx = np.clip(action_np[0], -1, 1) * move_speed
-        dy = np.clip(action_np[1], -1, 1) * move_speed
-        
-        cursor_x += dx
-        cursor_y += dy
-        
-        # Clip cursor
-        cursor_x = np.clip(cursor_x, -1, 1)
-        cursor_y = np.clip(cursor_y, -1, 1)
-        
-        # 2. Calculate Distance for Reward
-        dist = np.sqrt((target_x - cursor_x)**2 + (target_y - cursor_y)**2)
-        
-        # Reward: Higher is better. 
-        # Aim: Distance < 0.05
-        reward = -dist # Simple negative distance
-        if dist < 0.05:
-            reward += 1.0 # Hit bonus
+    try:
+        while True:
+            # Get Action
+            action, log_prob, value = agent.get_action(next_obs)
+            action_np = np.array(action).flatten()
             
-        # 3. New Obs
-        # If "hit" or timeout, reset target
-        done = False
-        if dist < 0.05 or np.random.rand() < 0.01: # 1% chance to respawn target to prevent getting stuck
-             done = True
-             target_x, target_y = np.random.uniform(-0.8, 0.8), np.random.uniform(-0.8, 0.8)
-             # Optionally reset cursor to center or keep it
-             # cursor_x, cursor_y = 0.0, 0.0 
-             
-        next_obs_new = np.array([target_x - cursor_x, target_y - cursor_y], dtype=np.float32)
-        
-        # --- STORE ---
-        memory['obs'].append(next_obs)
-        memory['actions'].append(action_np)
-        memory['logprobs'].append(np.array(log_prob).flatten()[0])
-        memory['rewards'].append(reward)
-        memory['dones'].append(done)
-        memory['values'].append(np.array(value).flatten()[0])
-        
-        next_obs = next_obs_new
-        step += 1
-        
-        # --- UPDATE ---
-        if step % UPDATE_TIMESTEPS == 0:
-            loss = agent.update(memory, batch_size=BATCH_SIZE, epochs=EPOCHS)
-            avg_reward = np.mean(memory['rewards'])
-            score_history.append(avg_reward)
+            # --- EXECUTE STEP (Simulate Physics) ---
             
-            # Clear memory
-            memory = {'obs': [], 'actions': [], 'logprobs': [], 'rewards': [], 'dones': [], 'values': []}
+            # 1. Move Cursor
+            move_speed = 0.1 # Max movement per step relative to screen
+            dx = np.clip(action_np[0], -1, 1) * move_speed
+            dy = np.clip(action_np[1], -1, 1) * move_speed
             
-            # FPS Calculation
-            fps = int(step / (time.time() - start_time))
+            cursor_x += dx
+            cursor_y += dy
             
-            print(f"Step {step}: Loss={loss:.4f}, Avg Reward={avg_reward:.4f}, FPS={fps}")
+            # Clip cursor
+            cursor_x = np.clip(cursor_x, -1, 1)
+            cursor_y = np.clip(cursor_y, -1, 1)
             
-            # WandB Log
-            wandb.log({
-                "global_step": step,
-                "loss": loss,
-                "avg_reward": avg_reward,
-                "fps": fps
-            })
+            # 2. Calculate Distance for Reward
+            dist = np.sqrt((target_x - cursor_x)**2 + (target_y - cursor_y)**2)
+            
+            # Reward: Higher is better. 
+            # Aim: Distance < 0.05
+            reward = -dist # Simple negative distance
+            if dist < 0.05:
+                reward += 1.0 # Hit bonus
+                
+            # 3. New Obs
+            # If "hit" or timeout, reset target
+            done = False
+            if dist < 0.05 or np.random.rand() < 0.01: # 1% chance to respawn target to prevent getting stuck
+                 done = True
+                 target_x, target_y = np.random.uniform(-0.8, 0.8), np.random.uniform(-0.8, 0.8)
+                 
+            next_obs_new = np.array([target_x - cursor_x, target_y - cursor_y], dtype=np.float32)
+            
+            # --- STORE ---
+            memory['obs'].append(next_obs)
+            memory['actions'].append(action_np)
+            memory['logprobs'].append(np.array(log_prob).flatten()[0])
+            memory['rewards'].append(reward)
+            memory['dones'].append(done)
+            memory['values'].append(np.array(value).flatten()[0])
+            
+            next_obs = next_obs_new
+            step += 1
+            
+            # --- UPDATE ---
+            if step % UPDATE_TIMESTEPS == 0:
+                loss = agent.update(memory, batch_size=BATCH_SIZE, epochs=EPOCHS)
+                avg_reward = np.mean(memory['rewards'])
+                
+                # Clear memory
+                memory = {'obs': [], 'actions': [], 'logprobs': [], 'rewards': [], 'dones': [], 'values': []}
+                
+                # FPS Calculation
+                fps = int(step / (time.time() - start_time))
+                
+                print(f"Step {step}: Loss={loss:.4f}, Avg Reward={avg_reward:.4f}, FPS={fps}")
+                
+                # WandB Log
+                wandb.log({
+                    "global_step": step,
+                    "loss": loss,
+                    "avg_reward": avg_reward,
+                    "fps": fps
+                })
 
-        # --- SAVE CHECKPOINT ---
-        if step % SAVE_INTERVAL == 0:
-            save_path = f"weights/model_cuda_{step}.pth"
-            model.save_weights(save_path)
-            print(f"Checkpoint saved: {save_path}")
-            
-    # Save Final
-    model.save_weights("weights/best_aim_cuda.pth")
-    print("Training Complete. Weights saved to weights/best_aim_cuda.pth")
-    wandb.finish()
+                # Save BEST
+                if avg_reward > best_avg_reward:
+                    best_avg_reward = avg_reward
+                    model.save_weights("weights/best_aim_cuda.pth")
+                    print(f"  >>> New Best Reward! Saved weights/best_aim_cuda.pth")
+
+            # --- SAVE CHECKPOINT (LAST) ---
+            if step % SAVE_INTERVAL == 0:
+                save_path = "weights/last_aim_cuda.pth"
+                model.save_weights(save_path)
+                print(f"Checkpoint saved: {save_path}")
+
+    except KeyboardInterrupt:
+        print("\nTraining canceled by user.")
+    finally:
+        # Save Final/Last
+        print("Saving last state before exit...")
+        model.save_weights("weights/last_aim_cuda.pth")
+        print("Training Session Ended. Weights saved to weights/last_aim_cuda.pth")
+        wandb.finish()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

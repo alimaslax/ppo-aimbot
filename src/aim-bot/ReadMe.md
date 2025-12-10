@@ -1,5 +1,7 @@
 # PPO Aimbot: Logic & Architecture
 
+https://aiming.pro/app#/play/benchmark/1
+
 This project uses a unique "Abstract Training" approach. Instead of training inside the game (which is slow and complex), we train the AI on **Pure Mathematics** and then apply that logic to the Real World.
 
 ## 1. How Training Works (`train_logic.py`)
