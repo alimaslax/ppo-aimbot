@@ -44,8 +44,18 @@ class ActorCritic(nn.Module):
     def save_weights(self, path):
         torch.save(self.state_dict(), path)
 
-    def load_weights(self, path):
-        self.load_state_dict(torch.load(path))
+    def load_weights(self, path, device=None):
+        if device is None:
+            # Auto-detect best available device for inference loading
+            if torch.cuda.is_available():
+                device = 'cuda'
+            elif torch.backends.mps.is_available():
+                device = 'mps'
+            else:
+                device = 'cpu'
+        
+        self.load_state_dict(torch.load(path, map_location=device))
+        self.to(device)
 
 class PPOAgent:
     def __init__(self, model, learning_rate=3e-4, gamma=0.99, eps_clip=0.2, device='cuda'):
