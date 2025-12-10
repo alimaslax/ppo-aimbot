@@ -8,8 +8,11 @@ from ultralytics import YOLO
 from brain_cuda import ActorCritic
 
 # --- Config ---
-MODEL_PATH = "weights/best_aim_cuda.pth"
-YOLO_PATH = "../../best.pt"  # Adjust relative path if needed
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../../"))
+
+MODEL_PATH = os.path.join(PROJECT_ROOT, "best_aim_cuda.pth")
+YOLO_PATH = os.path.join(PROJECT_ROOT, "models", "best.pt")  # Adjust relative path if needed
 CONF_THRESHOLD = 0.5
 SCREEN_WIDTH, SCREEN_HEIGHT = pyautogui.size()
 CENTER_X, CENTER_Y = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
