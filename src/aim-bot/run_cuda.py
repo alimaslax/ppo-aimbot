@@ -6,6 +6,9 @@ import mss
 import cv2
 import pyautogui
 import torch
+import socket
+import json
+import argparse
 from ultralytics import YOLO
 from brain_cuda import ActorCritic
 
@@ -13,8 +16,8 @@ from brain_cuda import ActorCritic
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../../"))
 
-MODEL_PATH = os.path.join(PROJECT_ROOT, "best_aim_cuda.pth")
-YOLO_PATH = os.path.join(PROJECT_ROOT, "models", "best.pt")  # Adjust relative path if needed
+MODEL_PATH = os.path.join(PROJECT_ROOT, "src", "aim-bot", "weights", "best_aim_cuda.pth")
+YOLO_PATH = os.path.join(PROJECT_ROOT,"src", "yolo", "models", "best.pt")  # Adjust relative path if needed
 CONF_THRESHOLD = 0.15
 SCREEN_WIDTH, SCREEN_HEIGHT = pyautogui.size()
 CENTER_X, CENTER_Y = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
@@ -38,8 +41,17 @@ def main():
     print(f"Running inference on: {device}")
 
     # 1. Load Models
+    # Parse Arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--test-mode', action='store_true', help="Run in test mode with external coordinates")
+    args = parser.parse_args()
+
+    # 1. Load Models
     print("Loading YOLO...")
-    yolo = YOLO(YOLO_PATH)
+    if not args.test_mode:
+        yolo = YOLO(YOLO_PATH)
+    else:
+        print("Test Mode: YOLO load skipped.")
     
     print("Loading Brain...")
     # Obs dim: 2, Action dim: 2
@@ -58,40 +70,68 @@ def main():
 
     sct = mss.mss()
     
+    if args.test_mode:
+        print("Test Mode Active. Listening for coordinates on UDP 9999...")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(("0.0.0.0", 9999))
+        sock.setblocking(False)
+
     print("Aimbot Active. Press Ctrl+C to stop.")
     
     try:
         while True:
-            # 2. Capture Screen
-            img = np.array(sct.grab(CAPTURE_REGION))
-            # Delete alpha channel
-            img = img[:, :, :3]
-            
-            # 3. Detect
-            results = yolo(img, verbose=False, conf=CONF_THRESHOLD)
-            
             target_box = None
-            min_dist = float('inf')
             
-            # 4. Find Nearest Target
-            # Process results relative to the CAPTURE REGION center
-            img_center_x, img_center_y = 320, 320
-            
-            for result in results:
-                boxes = result.boxes
-                for box in boxes:
-                    # Box xywh
-                    x, y, w, h = box.xywh[0] # Tensor
-                    x, y = float(x), float(y)
-                    
-                    # Distance from center
-                    dist = np.sqrt((x - img_center_x)**2 + (y - img_center_y)**2)
-                    
-                    if dist < min_dist:
-                        min_dist = dist
-                        target_box = (x, y) 
+            if args.test_mode:
+                # 2a. Receive Coordinates (Test Mode)
+                try:
+                    data, addr = sock.recvfrom(1024)
+                    data = json.loads(data.decode())
+                    # Game coordinates (0,0 is top-left)
+                    # We map them to match screen logic if needed, but here simple mapping
+                    # Assume game center (320, 320) matches capture center
+                    tx, ty = data['x'], data['y']
+                    target_box = (tx, ty)
+                    # No image capture needed
+                except BlockingIOError:
+                    pass # No new data
+                except Exception as e:
+                    print(f"UDP Error: {e}")
+                
+                time.sleep(0.01) # Small sleep to match ~60-100 FPS
+
+            else:
+                # 2b. Capture Screen (Normal Mode)
+                img = np.array(sct.grab(CAPTURE_REGION))
+                # Delete alpha channel
+                img = img[:, :, :3]
+                
+                # 3. Detect
+                results = yolo(img, verbose=False, conf=CONF_THRESHOLD)
+                
+                min_dist = float('inf')
+                
+                # 4. Find Nearest Target
+                # Process results relative to the CAPTURE REGION center
+                img_center_x, img_center_y = 320, 320
+                
+                for result in results:
+                    boxes = result.boxes
+                    for box in boxes:
+                        # Box xywh
+                        x, y, w, h = box.xywh[0] # Tensor
+                        x, y = float(x), float(y)
                         
-            # 5. Act
+                        # Distance from center
+                        dist = np.sqrt((x - img_center_x)**2 + (y - img_center_y)**2)
+                        
+                        if dist < min_dist:
+                            min_dist = dist
+                            target_box = (x, y) 
+            
+            # Common Logic: Act
+            img_center_x, img_center_y = 320, 320 # Center of 640x640 region
+
             if target_box:
                 tx, ty = target_box
                 
@@ -115,11 +155,17 @@ def main():
                 
                 print(f"[DEBUG] Target: ({tx:.1f}, {ty:.1f}) | Rel: ({rel_x:.2f}, {rel_y:.2f}) | Action: ({action[0]:.3f}, {action[1]:.3f}) | Delta: ({dx:.1f}, {dy:.1f}) -> Move: ({int(dx)}, {int(dy)})")
 
-                pyautogui.moveRel(int(dx), int(dy))
+                if args.test_mode:
+                    # Send feedback to game instead of moving mouse
+                    feedback = json.dumps({"dx": int(dx), "dy": int(dy)}).encode('utf-8')
+                    # Send to localhost:9998 (simple_game listener)
+                    sock.sendto(feedback, ("127.0.0.1", 9998))
+                else:
+                    pyautogui.moveRel(int(dx), int(dy))
                 
             # --- DEBUG: Save Screenshot ---
             # Save if we found a target OR with some small random probability
-            if target_box is not None or random.random() < 0.05:
+            if not args.test_mode and (target_box is not None or random.random() < 0.05):
                 # Plot results on the image (this returns BGR numpy array usually)
                 annotated_frame = results[0].plot()
                 
