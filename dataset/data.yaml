@@ -1,0 +1,13 @@
+train: train/images
+val: test/images
+test: test/images
+
+nc: 1
+names: ['target']
+
+roboflow:
+  workspace: ppo-wbcg6
+  project: ppo-shooter
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/ppo-wbcg6/ppo-shooter/dataset/1

@@ -1,0 +1,4 @@
+mlx
+gymnasium[classic-control]
+numpy
+wandb
