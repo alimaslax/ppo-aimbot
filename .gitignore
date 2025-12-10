@@ -7,3 +7,4 @@ venv/
 *.pkl
 wandb/
 model/
+debug_screenshots/

@@ -1,7 +1,9 @@
 import time
 import os
+import random
 import numpy as np
 import mss
+import cv2
 import pyautogui
 import torch
 from ultralytics import YOLO
@@ -13,11 +15,14 @@ PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "../../"))
 
 MODEL_PATH = os.path.join(PROJECT_ROOT, "best_aim_cuda.pth")
 YOLO_PATH = os.path.join(PROJECT_ROOT, "models", "best.pt")  # Adjust relative path if needed
-CONF_THRESHOLD = 0.5
+CONF_THRESHOLD = 0.15
 SCREEN_WIDTH, SCREEN_HEIGHT = pyautogui.size()
 CENTER_X, CENTER_Y = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
 DETECTION_BOX_SIZE = 640 
 CAPTURE_REGION = {'top': CENTER_Y - 320, 'left': CENTER_X - 320, 'width': 640, 'height': 640}
+
+DEBUG_DIR = os.path.join(PROJECT_ROOT, "debug_screenshots")
+os.makedirs(DEBUG_DIR, exist_ok=True)
 
 # Mouse control settings
 MOUSE_SENSITIVITY = 5.0 # How many pixels to move per unit of action
@@ -108,9 +113,23 @@ def main():
                 dx = action[0] * MOUSE_SENSITIVITY * 10 
                 dy = action[1] * MOUSE_SENSITIVITY * 10 
                 
+                print(f"[DEBUG] Target: ({tx:.1f}, {ty:.1f}) | Rel: ({rel_x:.2f}, {rel_y:.2f}) | Action: ({action[0]:.3f}, {action[1]:.3f}) | Delta: ({dx:.1f}, {dy:.1f}) -> Move: ({int(dx)}, {int(dy)})")
+
                 pyautogui.moveRel(int(dx), int(dy))
                 
-            # Sleep slightly to prevent CPU hogging if needed
+            # --- DEBUG: Save Screenshot ---
+            # Save if we found a target OR with some small random probability
+            if target_box is not None or random.random() < 0.05:
+                # Plot results on the image (this returns BGR numpy array usually)
+                annotated_frame = results[0].plot()
+                
+                # Make filename unique
+                timestamp = int(time.time() * 1000)
+                filename = os.path.join(DEBUG_DIR, f"debug_{timestamp}.jpg")
+                
+                # Save using OpenCV
+                # annotated_frame from ultralytics plot() is usually BGR
+                cv2.imwrite(filename, annotated_frame)
             # time.sleep(0.01) 
             
     except KeyboardInterrupt:

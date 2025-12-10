@@ -3,7 +3,7 @@ import os
 
 def test():
     # Load the best model
-    model_path = os.path.abspath("best.pt")
+    model_path = os.path.abspath("models/best.pt")
     if not os.path.exists(model_path):
         print(f"Error: Model not found at {model_path}")
         return
@@ -11,7 +11,7 @@ def test():
     model = YOLO(model_path)
 
     # Path to validation image
-    image_path = os.path.abspath("validate/1.png")
+    image_path = os.path.abspath("validate/debug_1.jpg")
     if not os.path.exists(image_path):
         print(f"Error: Image not found at {image_path}")
         return
