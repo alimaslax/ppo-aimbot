@@ -2,3 +2,6 @@ mlx
 gymnasium[classic-control]
 numpy
 wandb
+ultralytics
+mss
+pyautogui
