@@ -5,3 +5,4 @@ wandb
 ultralytics
 mss
 pyautogui
+pynput
