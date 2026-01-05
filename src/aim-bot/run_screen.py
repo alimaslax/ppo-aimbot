@@ -57,21 +57,16 @@ def move_step_to_target(brain, device, target_x, target_y):
     # Calculate distance to target
     distance = calculate_distance(current_x, current_y, target_x, target_y)
     
-    # Calculate relative position to the capture region center
-    img_center_x, img_center_y = 320, 320  # Center of 640x640 region
+    # Calculate the vector FROM current position TO target
+    # This is what the brain needs - how far and in what direction is the target
+    delta_x = target_x - current_x
+    delta_y = target_y - current_y
     
-    # Convert screen coordinates to capture region coordinates
-    # Target relative to screen center
-    rel_to_center_x = target_x - CENTER_X
-    rel_to_center_y = target_y - CENTER_Y
-    
-    # Now map to capture region coordinates (320, 320)
-    tx = img_center_x + rel_to_center_x
-    ty = img_center_y + rel_to_center_y
-    
-    # Normalize relative position to -1 to 1 range for the brain
-    rel_x = (tx - img_center_x) / 320.0
-    rel_y = (ty - img_center_y) / 320.0
+    # Normalize to -1 to 1 range (assuming 320 pixels is the max expected distance)
+    # This matches the training environment where 320 is half the capture region
+    max_distance = 320.0
+    rel_x = np.clip(delta_x / max_distance, -1.0, 1.0)
+    rel_y = np.clip(delta_y / max_distance, -1.0, 1.0)
     
     obs = np.array([rel_x, rel_y], dtype=np.float32)
     
@@ -86,7 +81,7 @@ def move_step_to_target(brain, device, target_x, target_y):
     dx = action[0] * MOUSE_SENSITIVITY * 10
     dy = action[1] * MOUSE_SENSITIVITY * 10
     
-    print(f"[STEP] Dist: {distance:.1f}px | Target: ({tx:.1f}, {ty:.1f}) | Rel: ({rel_x:.2f}, {rel_y:.2f}) | Action: ({action[0]:.3f}, {action[1]:.3f}) | Move: ({int(dx)}, {int(dy)})")
+    print(f"[STEP] Dist: {distance:.1f}px | Delta: ({delta_x:.1f}, {delta_y:.1f}) | Rel: ({rel_x:.2f}, {rel_y:.2f}) | Action: ({action[0]:.3f}, {action[1]:.3f}) | Move: ({int(dx)}, {int(dy)})")
     
     # Move mouse
     pyautogui.moveRel(int(dx), int(dy))
