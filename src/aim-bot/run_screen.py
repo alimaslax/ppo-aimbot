@@ -15,11 +15,15 @@ SCREEN_WIDTH, SCREEN_HEIGHT = pyautogui.size()
 CENTER_X, CENTER_Y = SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2
 
 # Mouse control settings
-MOUSE_SENSITIVITY = 5.0
+MOUSE_SENSITIVITY = 3.0  # Base sensitivity (reduced for smoother movement)
 DELAY_SECONDS = 5
 DISTANCE_THRESHOLD = 10  # Stop when within 10 pixels of target
 MAX_ITERATIONS = 100  # Safety limit to prevent infinite loops
-STEP_DELAY = 0.01  # Small delay between movements for smoothness
+STEP_DELAY = 0.016  # ~60fps timing for smooth movement
+
+# Smoothing settings
+SMOOTHING_DISTANCE = 150.0  # Start slowing down within this distance
+MIN_MOVE = 2  # Minimum pixels to move (prevents micro-jitter)
 
 # Global variable to store clicked position
 target_position = None
@@ -77,11 +81,25 @@ def move_step_to_target(brain, device, target_x, target_y):
     mean = brain.get_action_mean(obs_tensor)
     action = mean.detach().cpu().numpy().flatten()
     
-    # Calculate movement
-    dx = action[0] * MOUSE_SENSITIVITY * 10
-    dy = action[1] * MOUSE_SENSITIVITY * 10
+    # Calculate base movement
+    base_dx = action[0] * MOUSE_SENSITIVITY * 10
+    base_dy = action[1] * MOUSE_SENSITIVITY * 10
     
-    print(f"[STEP] Dist: {distance:.1f}px | Delta: ({delta_x:.1f}, {delta_y:.1f}) | Rel: ({rel_x:.2f}, {rel_y:.2f}) | Action: ({action[0]:.3f}, {action[1]:.3f}) | Move: ({int(dx)}, {int(dy)})")
+    # Apply distance-based scaling: move slower when close to target
+    # Full speed when far, proportionally slower as we approach
+    distance_scale = np.clip(distance / SMOOTHING_DISTANCE, 0.1, 1.0)
+    
+    dx = base_dx * distance_scale
+    dy = base_dy * distance_scale
+    
+    # Apply minimum movement threshold to prevent micro-jitter
+    if abs(dx) < MIN_MOVE and abs(dy) < MIN_MOVE and distance > DISTANCE_THRESHOLD:
+        # If moves are too small but we're not at target, give a small nudge
+        scale = MIN_MOVE / max(abs(dx), abs(dy), 0.01)
+        dx *= scale
+        dy *= scale
+    
+    print(f"[STEP] Dist: {distance:.1f}px | Scale: {distance_scale:.2f} | Rel: ({rel_x:.2f}, {rel_y:.2f}) | Action: ({action[0]:.3f}, {action[1]:.3f}) | Move: ({int(dx)}, {int(dy)})")
     
     # Move mouse
     pyautogui.moveRel(int(dx), int(dy))
